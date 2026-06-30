@@ -30,13 +30,17 @@ interface CustomerViewProps {
   onPlaceOrder: (orderData: Omit<Order, "id" | "status" | "timestamp">) => Promise<Order>;
   activeOrders: Order[];
   onCancelOrder: (id: string) => void;
+  feedbackList: Feedback[];
+  onAddFeedback: (feedbackData: Omit<Feedback, "id" | "timestamp">) => void;
 }
 
 export default function CustomerView({
   menuItems,
   onPlaceOrder,
   activeOrders,
-  onCancelOrder
+  onCancelOrder,
+  feedbackList,
+  onAddFeedback
 }: CustomerViewProps) {
   // Navigation & UI States
   const [activeTab, setActiveTab] = useState<string>("All");
@@ -70,53 +74,7 @@ export default function CustomerView({
     if (savedAddress) setAddress(savedAddress);
   }, []);
 
-  // Feedback states
-  const [feedbackList, setFeedbackList] = useState<Feedback[]>(() => {
-    const stored = localStorage.getItem("bitesync_feedback");
-    if (stored) return JSON.parse(stored);
-    
-    // Default initial mock reviews referencing the classic food items in the database
-    const defaults: Feedback[] = [
-      {
-        id: "f1",
-        customerName: "Aarav Sharma",
-        rating: 5,
-        comment: "The Fiery Paneer Tikka Pizza was absolutely stellar! Crisp hand-stretched crust, loaded with spicy paneer, and hot cheese. Highly recommended!",
-        tag: "Tasty Food",
-        menuItemName: "Fiery Paneer Tikka Pizza",
-        timestamp: new Date(Date.now() - 3600000 * 2).toISOString()
-      },
-      {
-        id: "f2",
-        customerName: "Anjali Gupta",
-        rating: 5,
-        comment: "Outstanding delivery speed! The Classic Margherita Pizza arrived incredibly fresh and warm. Kids absolutely loved it.",
-        tag: "Fast Delivery",
-        menuItemName: "Classic Margherita Pizza",
-        timestamp: new Date(Date.now() - 3600000 * 5).toISOString()
-      },
-      {
-        id: "f3",
-        customerName: "Rohan Das",
-        rating: 4,
-        comment: "Creamy Alfredo Pasta is perfectly rich, buttery, and garlic-flavored. Samosas were also extremely crunchy. Amazing food quality!",
-        tag: "Tasty Food",
-        menuItemName: "Creamy Alfredo Pasta",
-        timestamp: new Date(Date.now() - 3600000 * 24).toISOString()
-      },
-      {
-        id: "f4",
-        customerName: "Sanjay Sen",
-        rating: 5,
-        comment: "We ordered classic chicken egg rolls and veg burgers for a late office snack. Extremely happy with the packing and service. Five stars!",
-        tag: "Great Service",
-        menuItemName: "Classic Chicken Egg Roll",
-        timestamp: new Date(Date.now() - 3600000 * 48).toISOString()
-      }
-    ];
-    localStorage.setItem("bitesync_feedback", JSON.stringify(defaults));
-    return defaults;
-  });
+  // Feedback form states
 
   const [newFeedbackName, setNewFeedbackName] = useState("");
   const [newFeedbackRating, setNewFeedbackRating] = useState(5);
@@ -138,19 +96,13 @@ export default function CustomerView({
       return;
     }
 
-    const reviewItem: Feedback = {
-      id: `f-${Date.now()}`,
+    onAddFeedback({
       customerName: newFeedbackName.trim(),
       rating: newFeedbackRating,
       comment: newFeedbackComment.trim(),
       tag: newFeedbackTag,
-      menuItemName: newFeedbackItemName === "General Feedback" ? undefined : newFeedbackItemName,
-      timestamp: new Date().toISOString()
-    };
-
-    const updated = [reviewItem, ...feedbackList];
-    setFeedbackList(updated);
-    localStorage.setItem("bitesync_feedback", JSON.stringify(updated));
+      menuItemName: newFeedbackItemName === "General Feedback" ? undefined : newFeedbackItemName
+    });
 
     // Persist name if not already set, for future orders
     if (!localStorage.getItem("bitesync_customer_name") && newFeedbackName.trim()) {

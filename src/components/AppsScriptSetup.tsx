@@ -29,6 +29,8 @@ function doGet(e) {
     return getMenuData(sheet);
   } else if (action === "getOrders") {
     return getOrdersData(sheet);
+  } else if (action === "getFeedback") {
+    return getFeedbackData(sheet);
   }
   
   return createJSONResponse({ error: "Invalid action parameter: " + action });
@@ -63,6 +65,10 @@ function doPost(e) {
     return createOrder(sheet, postData.order);
   } else if (action === "updateOrderStatus") {
     return updateOrderStatus(sheet, postData.id, postData.status);
+  } else if (action === "saveFeedback") {
+    return saveFeedbackItem(sheet, postData.feedback);
+  } else if (action === "deleteFeedback") {
+    return deleteFeedbackItem(sheet, postData.id);
   }
   
   return createJSONResponse({ error: "Invalid action: " + action });
@@ -94,6 +100,23 @@ function initSheets(sheet) {
     ordersSheet = sheet.insertSheet("orders");
     ordersSheet.appendRow(["id", "customerName", "customerPhone", "deliveryAddress", "notes", "items", "total", "status", "timestamp"]);
     ordersSheet.setFrozenRows(1);
+  }
+
+  var feedbackSheet = sheet.getSheetByName("feedback");
+  if (!feedbackSheet) {
+    feedbackSheet = sheet.insertSheet("feedback");
+    feedbackSheet.appendRow(["id", "customerName", "rating", "comment", "tag", "menuItemName", "timestamp"]);
+    feedbackSheet.setFrozenRows(1);
+    
+    // Seed some initial reviews
+    var initialFeedback = [
+      ["f1", "Aarav Sharma", 5, "The Fiery Paneer Tikka Pizza was absolutely stellar! Crisp hand-stretched crust, loaded with spicy paneer, and hot cheese. Highly recommended!", "Tasty Food", "Fiery Paneer Tikka Pizza", new Date(Date.now() - 3600000 * 2).toISOString()],
+      ["f2", "Anjali Gupta", 5, "Outstanding delivery speed! The Classic Margherita Pizza arrived incredibly fresh and warm. Kids absolutely loved it.", "Fast Delivery", "Classic Margherita Pizza", new Date(Date.now() - 3600000 * 5).toISOString()],
+      ["f3", "Rohan Das", 4, "Creamy Alfredo Pasta is perfectly rich, buttery, and garlic-flavored. Samosas were also extremely crunchy. Amazing food quality!", "Tasty Food", "Creamy Alfredo Pasta", new Date(Date.now() - 3600000 * 24).toISOString()]
+    ];
+    for (var i = 0; i < initialFeedback.length; i++) {
+      feedbackSheet.appendRow(initialFeedback[i]);
+    }
   }
 }
 
@@ -144,6 +167,29 @@ function getOrdersData(sheet) {
     data.push(order);
   }
   return createJSONResponse({ orders: data });
+}
+
+// Fetch all feedback items
+function getFeedbackData(sheet) {
+  var feedbackSheet = sheet.getSheetByName("feedback");
+  if (!feedbackSheet) {
+    return createJSONResponse({ feedback: [] });
+  }
+  var rows = feedbackSheet.getDataRange().getValues();
+  var headers = rows[0];
+  var data = [];
+  
+  for (var r = 1; r < rows.length; r++) {
+    var row = rows[r];
+    var item = {};
+    for (var c = 0; c < headers.length; c++) {
+      var val = row[c];
+      if (headers[c] === "rating") val = parseInt(val) || 5;
+      item[headers[c]] = val;
+    }
+    data.push(item);
+  }
+  return createJSONResponse({ feedback: data });
 }
 
 // Save (Add or Edit) a menu item
@@ -228,6 +274,54 @@ function updateOrderStatus(sheet, id, status) {
     }
   }
   return createJSONResponse({ error: "Order not found with ID: " + id });
+}
+
+// Save (Add or Edit) feedback
+function saveFeedbackItem(sheet, feedback) {
+  var feedbackSheet = sheet.getSheetByName("feedback");
+  var rows = feedbackSheet.getDataRange().getValues();
+  var headers = rows[0];
+  
+  var idIndex = headers.indexOf("id");
+  var foundRowIndex = -1;
+  
+  for (var r = 1; r < rows.length; r++) {
+    if (String(rows[r][idIndex]) === String(feedback.id)) {
+      foundRowIndex = r + 1; // 1-based index
+      break;
+    }
+  }
+  
+  var rowValues = headers.map(function(h) {
+    var val = feedback[h];
+    if (h === "rating") val = parseInt(val) || 5;
+    return val !== undefined ? val : "";
+  });
+  
+  if (foundRowIndex !== -1) {
+    var range = feedbackSheet.getRange(foundRowIndex, 1, 1, headers.length);
+    range.setValues([rowValues]);
+  } else {
+    feedbackSheet.appendRow(rowValues);
+  }
+  
+  return createJSONResponse({ success: true, feedback: feedback });
+}
+
+// Delete feedback
+function deleteFeedbackItem(sheet, id) {
+  var feedbackSheet = sheet.getSheetByName("feedback");
+  var rows = feedbackSheet.getDataRange().getValues();
+  var headers = rows[0];
+  var idIndex = headers.indexOf("id");
+  
+  for (var r = 1; r < rows.length; r++) {
+    if (String(rows[r][idIndex]) === String(id)) {
+      feedbackSheet.deleteRow(r + 1);
+      return createJSONResponse({ success: true, deletedId: id });
+    }
+  }
+  return createJSONResponse({ error: "Feedback not found with ID: " + id });
 }
 
 // Help resolve CORS and JSON formatting for fetch() calls

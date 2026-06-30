@@ -18,9 +18,11 @@ import {
   Calendar,
   AlertCircle,
   FileText,
-  IndianRupee
+  IndianRupee,
+  MessageSquare,
+  Star
 } from "lucide-react";
-import { MenuItem, Order, SalesReport, PopularItem } from "../types";
+import { MenuItem, Order, SalesReport, PopularItem, Feedback } from "../types";
 import { playAudioNotification } from "../utils/audio";
 import AppsScriptSetup from "./AppsScriptSetup";
 
@@ -34,6 +36,8 @@ interface AdminViewProps {
   onEditMenuItem: (item: MenuItem) => Promise<void>;
   onDeleteMenuItem: (id: string) => Promise<void>;
   onUpdateOrderStatus: (id: string, status: Order["status"]) => Promise<void>;
+  feedbackList: Feedback[];
+  onDeleteFeedback: (id: string) => Promise<void>;
 }
 
 export default function AdminView({
@@ -46,9 +50,11 @@ export default function AdminView({
   onEditMenuItem,
   onDeleteMenuItem,
   onUpdateOrderStatus,
+  feedbackList,
+  onDeleteFeedback,
 }: AdminViewProps) {
   // Navigation
-  const [activeSubTab, setActiveSubTab] = useState<"orders" | "menu" | "stats" | "sheets">("orders");
+  const [activeSubTab, setActiveSubTab] = useState<"orders" | "menu" | "stats" | "sheets" | "feedback">("orders");
 
   // Track order IDs we have already seen to trigger sounds only on fresh incoming entries
   const [knownOrderIds, setKnownOrderIds] = useState<string[]>(() =>
@@ -85,6 +91,10 @@ export default function AdminView({
   const [mAvailable, setMAvailable] = useState(true);
   const [menuFormError, setMenuFormError] = useState("");
   const [isSubmittingMenu, setIsSubmittingMenu] = useState(false);
+
+  // Feedback view states
+  const [feedbackRatingFilter, setFeedbackRatingFilter] = useState<"all" | number>("all");
+  const [feedbackSearchQuery, setFeedbackSearchQuery] = useState("");
 
   // Statistics calculation
   const stats = useMemo(() => {
@@ -176,6 +186,36 @@ export default function AdminView({
       categorySales: categorySalesMap,
     };
   }, [orders, menuItems]);
+
+  const feedbackAnalytics = useMemo(() => {
+    const list = feedbackList || [];
+    const total = list.length;
+    const avg = total > 0 ? list.reduce((sum, f) => sum + f.rating, 0) / total : 0;
+    const distribution = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
+    list.forEach((f) => {
+      if (f.rating >= 1 && f.rating <= 5) {
+        distribution[f.rating as 1 | 2 | 3 | 4 | 5]++;
+      }
+    });
+    return {
+      total,
+      avg: avg.toFixed(1),
+      distribution
+    };
+  }, [feedbackList]);
+
+  const filteredFeedback = useMemo(() => {
+    const list = feedbackList || [];
+    return list.filter((f) => {
+      const matchesRating = feedbackRatingFilter === "all" || f.rating === feedbackRatingFilter;
+      const matchesSearch =
+        f.customerName.toLowerCase().includes(feedbackSearchQuery.toLowerCase()) ||
+        f.comment.toLowerCase().includes(feedbackSearchQuery.toLowerCase()) ||
+        (f.menuItemName && f.menuItemName.toLowerCase().includes(feedbackSearchQuery.toLowerCase())) ||
+        (f.tag && f.tag.toLowerCase().includes(feedbackSearchQuery.toLowerCase()));
+      return matchesRating && matchesSearch;
+    });
+  }, [feedbackList, feedbackRatingFilter, feedbackSearchQuery]);
 
   // Handle menu modal open for Edit vs. Create
   const openMenuModal = (item: MenuItem | null) => {
@@ -359,6 +399,22 @@ export default function AdminView({
                 <span className="ml-auto w-2 h-2 bg-vibrant-yellow rounded-full" />
               )}
             </button>
+
+            <button
+              id="admin-nav-feedback"
+              onClick={() => setActiveSubTab("feedback")}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+                activeSubTab === "feedback" ? "bg-[#EF5D28] text-white shadow-inner" : "text-white/85 hover:bg-white/10"
+              }`}
+            >
+              <MessageSquare className="w-4 h-4" />
+              <span>Customer Reviews</span>
+              {feedbackList.length > 0 && (
+                <span className="ml-auto bg-vibrant-yellow text-vibrant-orange text-[10px] font-black px-1.5 py-0.5 rounded-full">
+                  {feedbackList.length}
+                </span>
+              )}
+            </button>
           </nav>
         </div>
 
@@ -388,6 +444,7 @@ export default function AdminView({
               { key: "menu", label: "Menu" },
               { key: "stats", label: "Stats" },
               { key: "sheets", label: "Sheets" },
+              { key: "feedback", label: "Reviews" },
             ] as const).map((sub) => (
               <button
                 id={`mobile-tab-${sub.key}`}
@@ -978,6 +1035,224 @@ export default function AdminView({
                   onSaveUrl={onSaveUrl}
                   onTestConnection={onTestConnection}
                 />
+              </motion.div>
+            )}
+
+            {/* =========================================================================
+               CUSTOMER REVIEWS & FEEDBACK PANEL
+               ========================================================================= */}
+            {activeSubTab === "feedback" && (
+              <motion.div
+                key="feedback-panel"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="space-y-6"
+              >
+                {/* Header & Description */}
+                <div className="bg-white rounded-2xl p-6 border border-vibrant-border/60 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div>
+                    <h1 className="text-xl font-black text-vibrant-slate tracking-tight flex items-center gap-2">
+                      <MessageSquare className="w-5 h-5 text-vibrant-orange" />
+                      <span>Customer Reviews & Sentiment</span>
+                    </h1>
+                    <p className="text-xs text-vibrant-gray mt-1 font-medium">
+                      Moderate customer feedback, inspect food quality, and track delivery ratings.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="font-bold text-vibrant-gray">Total Submissions:</span>
+                    <span className="bg-vibrant-orange/15 text-vibrant-orange font-black px-3 py-1 rounded-full border border-vibrant-orange/10">
+                      {feedbackAnalytics.total} Reviews
+                    </span>
+                  </div>
+                </div>
+
+                {/* KPI stats section */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {/* Rating KPI */}
+                  <div className="bg-white rounded-2xl p-6 border border-vibrant-border/60 shadow-xs flex items-center gap-5">
+                    <div className="p-4 bg-vibrant-yellow/25 rounded-xl text-vibrant-orange-dark">
+                      <Star className="w-8 h-8 fill-vibrant-yellow stroke-vibrant-orange-dark" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-vibrant-gray tracking-wider">Average Rating</span>
+                      <h3 className="text-3xl font-black text-vibrant-slate leading-tight">{feedbackAnalytics.avg} / 5.0</h3>
+                      <div className="flex items-center gap-0.5 mt-1 text-vibrant-orange">
+                        {Array.from({ length: 5 }).map((_, idx) => {
+                          const val = idx + 1;
+                          const avg = parseFloat(feedbackAnalytics.avg);
+                          return (
+                            <Star
+                              key={idx}
+                              className={`w-3.5 h-3.5 ${
+                                val <= avg
+                                  ? "fill-vibrant-yellow stroke-vibrant-orange-dark"
+                                  : val - 0.5 <= avg
+                                  ? "fill-vibrant-yellow/50 stroke-vibrant-orange-dark"
+                                  : "text-gray-200"
+                              }`}
+                            />
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Rating Distribution Bar Chart */}
+                  <div className="bg-white rounded-2xl p-5 border border-vibrant-border/60 shadow-xs md:col-span-2 flex flex-col justify-between">
+                    <span className="text-[10px] uppercase font-bold text-vibrant-gray tracking-wider mb-2 block">Rating Distribution</span>
+                    <div className="space-y-1.5 flex-1 flex flex-col justify-center">
+                      {([5, 4, 3, 2, 1] as const).map((stars) => {
+                        const count = feedbackAnalytics.distribution[stars] || 0;
+                        const percentage = feedbackAnalytics.total > 0 ? (count / feedbackAnalytics.total) * 100 : 0;
+                        return (
+                          <div key={stars} className="flex items-center gap-3 text-xs font-medium">
+                            <span className="w-12 text-vibrant-slate font-bold shrink-0 flex items-center gap-1 justify-end">
+                              {stars} <Star className="w-3 h-3 fill-vibrant-yellow text-vibrant-orange-dark inline" />
+                            </span>
+                            <div className="flex-1 h-3 bg-vibrant-peach/40 rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-vibrant-orange rounded-full transition-all duration-500"
+                                style={{ width: `${percentage}%` }}
+                              />
+                            </div>
+                            <span className="w-10 text-right text-vibrant-gray font-bold shrink-0">
+                              {count} ({Math.round(percentage)}%)
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Filters and search block */}
+                <div className="bg-white rounded-2xl p-5 border border-vibrant-border/60 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-4">
+                  {/* Rating buttons */}
+                  <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto self-start">
+                    <span className="text-xs font-bold text-vibrant-gray shrink-0 mr-1.5">Rating:</span>
+                    <button
+                      onClick={() => setFeedbackRatingFilter("all")}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 ${
+                        feedbackRatingFilter === "all"
+                          ? "bg-vibrant-slate text-white shadow-xs"
+                          : "bg-vibrant-peach/40 hover:bg-vibrant-peach text-vibrant-gray"
+                      }`}
+                    >
+                      All Ratings
+                    </button>
+                    {([5, 4, 3, 2, 1] as const).map((r) => (
+                      <button
+                        key={r}
+                        onClick={() => setFeedbackRatingFilter(r)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 shrink-0 ${
+                          feedbackRatingFilter === r
+                            ? "bg-vibrant-orange text-white shadow-xs"
+                            : "bg-vibrant-peach/40 hover:bg-vibrant-peach text-vibrant-gray"
+                        }`}
+                      >
+                        <span>{r}</span>
+                        <Star className={`w-3 h-3 ${feedbackRatingFilter === r ? "fill-white text-white" : "fill-vibrant-yellow text-vibrant-orange-dark"}`} />
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Search input */}
+                  <div className="relative w-full sm:w-72">
+                    <input
+                      type="text"
+                      placeholder="Search comments, names, tags..."
+                      value={feedbackSearchQuery}
+                      onChange={(e) => setFeedbackSearchQuery(e.target.value)}
+                      className="w-full pl-9 pr-4 py-2 bg-vibrant-peach/20 border border-vibrant-border/60 rounded-xl text-xs font-medium outline-none focus:ring-2 focus:ring-vibrant-orange focus:border-vibrant-orange transition-all"
+                    />
+                    <MessageSquare className="w-3.5 h-3.5 text-vibrant-gray absolute left-3 top-2.5" />
+                  </div>
+                </div>
+
+                {/* Reviews listing */}
+                <div className="space-y-4">
+                  {filteredFeedback.length > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {filteredFeedback.map((fb) => (
+                        <div
+                          key={fb.id}
+                          className="bg-white rounded-2xl p-5 border border-vibrant-border/60 shadow-xs flex flex-col justify-between hover:border-vibrant-border transition-all relative group"
+                        >
+                          <div>
+                            {/* Card top */}
+                            <div className="flex items-start justify-between gap-2 mb-3">
+                              <div>
+                                <h4 className="font-bold text-sm text-vibrant-slate tracking-tight">{fb.customerName}</h4>
+                                <span className="text-[10px] text-vibrant-gray font-medium flex items-center gap-1 mt-0.5">
+                                  <Clock className="w-3 h-3 text-vibrant-gray" />
+                                  {fb.timestamp ? new Date(fb.timestamp).toLocaleString() : "Date unavailable"}
+                                </span>
+                              </div>
+
+                              {/* Star rating display */}
+                              <div className="flex items-center gap-0.5 bg-vibrant-yellow/10 border border-vibrant-yellow/25 px-2 py-1 rounded-lg">
+                                <span className="font-mono text-xs font-black text-vibrant-orange-dark leading-none">{fb.rating}</span>
+                                <Star className="w-3 h-3 fill-vibrant-yellow text-vibrant-orange-dark shrink-0" />
+                              </div>
+                            </div>
+
+                            {/* Comment */}
+                            <p className="text-xs text-vibrant-slate leading-relaxed bg-vibrant-peach/10 p-3 rounded-xl border border-vibrant-border/20 italic font-medium">
+                              "{fb.comment}"
+                            </p>
+
+                            {/* Subtitle / context info */}
+                            {fb.menuItemName && (
+                              <p className="text-[10px] text-vibrant-orange-dark font-bold mt-3">
+                                Review for: <span className="underline italic">{fb.menuItemName}</span>
+                              </p>
+                            )}
+                          </div>
+
+                          {/* Card bottom */}
+                          <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-50">
+                            {/* Tag */}
+                            {fb.tag ? (
+                              <span className="bg-vibrant-orange/10 text-vibrant-orange font-bold text-[10px] px-2.5 py-0.5 rounded-full border border-vibrant-orange/5">
+                                {fb.tag}
+                              </span>
+                            ) : (
+                              <span className="bg-gray-100 text-gray-500 font-bold text-[10px] px-2.5 py-0.5 rounded-full">
+                                General Feedback
+                              </span>
+                            )}
+
+                            {/* Spam / Delete actions */}
+                            <button
+                              onClick={() => {
+                                if (window.confirm("Are you sure you want to delete this customer review? This will remove it from sheets and the website.")) {
+                                  onDeleteFeedback(fb.id);
+                                }
+                              }}
+                              className="text-[10px] font-bold text-rose-500 hover:text-rose-700 hover:bg-rose-50 flex items-center gap-1 px-2.5 py-1 rounded-lg transition-all border border-transparent hover:border-rose-100"
+                              title="Delete/moderate feedback review"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                              <span>Moderate</span>
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="bg-white rounded-2xl p-12 text-center border border-vibrant-border/60">
+                      <div className="w-12 h-12 bg-vibrant-peach/40 rounded-full flex items-center justify-center mx-auto mb-3">
+                        <MessageSquare className="w-5 h-5 text-vibrant-orange-dark" />
+                      </div>
+                      <h4 className="text-sm font-bold text-vibrant-slate">No Reviews Match Filters</h4>
+                      <p className="text-xs text-vibrant-gray mt-1 max-w-sm mx-auto font-medium">
+                        Try adjusting your filters or rating stars selection above, or clear your search input text.
+                      </p>
+                    </div>
+                  )}
+                </div>
               </motion.div>
             )}
           </AnimatePresence>

@@ -10,8 +10,8 @@ import {
   AlertTriangle,
   Sparkles
 } from "lucide-react";
-import { MenuItem, Order } from "./types";
-import { INITIAL_MENU_ITEMS, INITIAL_ORDERS } from "./data";
+import { MenuItem, Order, Feedback } from "./types";
+import { INITIAL_MENU_ITEMS, INITIAL_ORDERS, INITIAL_FEEDBACK_ITEMS } from "./data";
 import CustomerView from "./components/CustomerView";
 import AdminView from "./components/AdminView";
 
@@ -22,6 +22,7 @@ export default function App() {
   // Core Data States
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [feedbackList, setFeedbackList] = useState<Feedback[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Connection config
@@ -50,27 +51,31 @@ export default function App() {
     // 2. Read database content from localStorage or fallbacks
     const storedMenu = localStorage.getItem("bitesync_menu_items");
     const storedOrders = localStorage.getItem("bitesync_orders_log");
+    const storedFeedback = localStorage.getItem("bitesync_feedback");
 
     const initialMenu = storedMenu ? JSON.parse(storedMenu) : INITIAL_MENU_ITEMS;
     const initialOrders = storedOrders ? JSON.parse(storedOrders) : INITIAL_ORDERS;
+    const initialFeedback = storedFeedback ? JSON.parse(storedFeedback) : INITIAL_FEEDBACK_ITEMS;
 
     setMenuItems(initialMenu);
     setOrders(initialOrders);
+    setFeedbackList(initialFeedback);
 
     // Save defaults to localStorage if empty
     if (!storedMenu) localStorage.setItem("bitesync_menu_items", JSON.stringify(INITIAL_MENU_ITEMS));
     if (!storedOrders) localStorage.setItem("bitesync_orders_log", JSON.stringify(INITIAL_ORDERS));
+    if (!storedFeedback) localStorage.setItem("bitesync_feedback", JSON.stringify(INITIAL_FEEDBACK_ITEMS));
 
     // 3. If there is a Web App URL, fetch from Google Spreadsheet
     if (savedUrl) {
-      syncWithSpreadsheet(savedUrl, initialMenu, initialOrders);
+      syncWithSpreadsheet(savedUrl, initialMenu, initialOrders, initialFeedback);
     } else {
       setLoading(false);
     }
   }, []);
 
   // Sync data with Google Apps Script
-  const syncWithSpreadsheet = async (url: string, fallbackMenu?: MenuItem[], fallbackOrders?: Order[]) => {
+  const syncWithSpreadsheet = async (url: string, fallbackMenu?: MenuItem[], fallbackOrders?: Order[], fallbackFeedback?: Feedback[]) => {
     setLoading(true);
     setSyncError("");
     try {
@@ -108,6 +113,21 @@ export default function App() {
         throw new Error(ordersData?.error || `HTTP ${ordersRes.status} error fetching orders`);
       }
 
+      // Fetch current feedback via server-side proxy (gracefully catch errors if feedback sheet does not exist yet)
+      let feedbackDataFetched: Feedback[] = [];
+      try {
+        const feedbackRes = await fetch(`/api/sheets-proxy?url=${encodeURIComponent(url)}&action=getFeedback`);
+        if (feedbackRes.ok) {
+          const fbText = await feedbackRes.text();
+          const fbJSON = JSON.parse(fbText);
+          if (fbJSON && fbJSON.feedback && Array.isArray(fbJSON.feedback)) {
+            feedbackDataFetched = fbJSON.feedback;
+          }
+        }
+      } catch (fbErr) {
+        console.warn("Feedback sheet not setup yet in Apps Script:", fbErr);
+      }
+
       if (menuData?.menu && Array.isArray(menuData.menu)) {
         setMenuItems(menuData.menu);
         localStorage.setItem("bitesync_menu_items", JSON.stringify(menuData.menu));
@@ -117,6 +137,14 @@ export default function App() {
         const sorted = ordersData.orders;
         setOrders(sorted);
         localStorage.setItem("bitesync_orders_log", JSON.stringify(sorted));
+      }
+      if (feedbackDataFetched && feedbackDataFetched.length > 0) {
+        // Sort feedback newest first
+        const sortedFB = feedbackDataFetched.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+        setFeedbackList(sortedFB);
+        localStorage.setItem("bitesync_feedback", JSON.stringify(sortedFB));
+      } else if (fallbackFeedback) {
+        setFeedbackList(fallbackFeedback);
       }
 
       setSyncStatus("synced");
@@ -129,6 +157,7 @@ export default function App() {
       // Load fallbacks if first fetch
       if (fallbackMenu) setMenuItems(fallbackMenu);
       if (fallbackOrders) setOrders(fallbackOrders);
+      if (fallbackFeedback) setFeedbackList(fallbackFeedback);
     } finally {
       setLoading(false);
     }
@@ -174,18 +203,22 @@ export default function App() {
   const updateLocalAndBackend = async (
     newMenu: MenuItem[],
     newOrders: Order[],
+    newFeedback?: Feedback[],
     actionDetails?: {
-      action: "saveMenuItem" | "deleteMenuItem" | "createOrder" | "updateOrderStatus";
+      action: "saveMenuItem" | "deleteMenuItem" | "createOrder" | "updateOrderStatus" | "saveFeedback" | "deleteFeedback";
       payload: any;
     }
   ) => {
+    const finalFeedback = newFeedback || feedbackList;
     // 1. Update React state instantly
     setMenuItems(newMenu);
     setOrders(newOrders);
+    setFeedbackList(finalFeedback);
 
     // 2. Update local storage instantly
     localStorage.setItem("bitesync_menu_items", JSON.stringify(newMenu));
     localStorage.setItem("bitesync_orders_log", JSON.stringify(newOrders));
+    localStorage.setItem("bitesync_feedback", JSON.stringify(finalFeedback));
 
     // 3. Write to Spreadsheet Web App in background via proxy
     if (webAppUrl && actionDetails) {
@@ -222,7 +255,7 @@ export default function App() {
     };
 
     const updatedOrders = [newOrder, ...orders];
-    await updateLocalAndBackend(menuItems, updatedOrders, {
+    await updateLocalAndBackend(menuItems, updatedOrders, undefined, {
       action: "createOrder",
       payload: { order: newOrder }
     });
@@ -233,7 +266,7 @@ export default function App() {
   // Customer / Admin: Cancel an active order
   const handleCancelOrder = async (id: string) => {
     const updated = orders.map((o) => (o.id === id ? { ...o, status: "Cancelled" as const } : o));
-    await updateLocalAndBackend(menuItems, updated, {
+    await updateLocalAndBackend(menuItems, updated, undefined, {
       action: "updateOrderStatus",
       payload: { id, status: "Cancelled" }
     });
@@ -244,7 +277,7 @@ export default function App() {
     const newId = `m${Date.now()}`;
     const newItem: MenuItem = { ...item, id: newId };
     const updatedMenu = [...menuItems, newItem];
-    await updateLocalAndBackend(updatedMenu, orders, {
+    await updateLocalAndBackend(updatedMenu, orders, undefined, {
       action: "saveMenuItem",
       payload: { item: newItem }
     });
@@ -253,7 +286,7 @@ export default function App() {
   // Admin: Edit an existing dish details
   const handleEditMenuItem = async (item: MenuItem) => {
     const updatedMenu = menuItems.map((mi) => (mi.id === item.id ? item : mi));
-    await updateLocalAndBackend(updatedMenu, orders, {
+    await updateLocalAndBackend(updatedMenu, orders, undefined, {
       action: "saveMenuItem",
       payload: { item }
     });
@@ -262,7 +295,7 @@ export default function App() {
   // Admin: Delete a dish from the list
   const handleDeleteMenuItem = async (id: string) => {
     const updatedMenu = menuItems.filter((mi) => mi.id !== id);
-    await updateLocalAndBackend(updatedMenu, orders, {
+    await updateLocalAndBackend(updatedMenu, orders, undefined, {
       action: "deleteMenuItem",
       payload: { id }
     });
@@ -271,9 +304,32 @@ export default function App() {
   // Admin: Update order status transition
   const handleUpdateOrderStatus = async (id: string, status: Order["status"]) => {
     const updatedOrders = orders.map((o) => (o.id === id ? { ...o, status } : o));
-    await updateLocalAndBackend(menuItems, updatedOrders, {
+    await updateLocalAndBackend(menuItems, updatedOrders, undefined, {
       action: "updateOrderStatus",
       payload: { id, status }
+    });
+  };
+
+  // Customer: Submit a review / feedback
+  const handlePlaceFeedback = async (feedbackData: Omit<Feedback, "id" | "timestamp">) => {
+    const newFeedback: Feedback = {
+      ...feedbackData,
+      id: `f-${Date.now()}`,
+      timestamp: new Date().toISOString()
+    };
+    const updatedFeedback = [newFeedback, ...feedbackList];
+    await updateLocalAndBackend(menuItems, orders, updatedFeedback, {
+      action: "saveFeedback",
+      payload: { feedback: newFeedback }
+    });
+  };
+
+  // Admin: Delete/moderate a review
+  const handleDeleteFeedback = async (id: string) => {
+    const updatedFeedback = feedbackList.filter((fb) => fb.id !== id);
+    await updateLocalAndBackend(menuItems, orders, updatedFeedback, {
+      action: "deleteFeedback",
+      payload: { id }
     });
   };
 
@@ -378,6 +434,8 @@ export default function App() {
                 onPlaceOrder={handlePlaceOrder}
                 activeOrders={orders}
                 onCancelOrder={handleCancelOrder}
+                feedbackList={feedbackList}
+                onAddFeedback={handlePlaceFeedback}
               />
             </motion.div>
           ) : (
@@ -399,6 +457,8 @@ export default function App() {
                 onEditMenuItem={handleEditMenuItem}
                 onDeleteMenuItem={handleDeleteMenuItem}
                 onUpdateOrderStatus={handleUpdateOrderStatus}
+                feedbackList={feedbackList}
+                onDeleteFeedback={handleDeleteFeedback}
               />
             </motion.div>
           )}

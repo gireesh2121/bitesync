@@ -1,4 +1,4 @@
-import { MenuItem, Order } from './types';
+import { MenuItem, Order, Feedback } from './types';
 
 export const INITIAL_MENU_ITEMS: MenuItem[] = [
   {
@@ -309,3 +309,34 @@ export const INITIAL_ORDERS: Order[] = [
     timestamp: getPastDateString(6, 18, 0) // 6 days ago
   }
 ];
+
+export const INITIAL_FEEDBACK_ITEMS: Feedback[] = [
+  {
+    id: "f-1",
+    customerName: "Rohan Mehra",
+    rating: 5,
+    comment: "The Butter Chicken was out of this world! Creamy, perfect spice level, and absolutely delicious. Packaging was very neat.",
+    tag: "Tasty Food",
+    menuItemName: "Butter Chicken (Murgh Makhani)",
+    timestamp: new Date(Date.now() - 3600000 * 2).toISOString()
+  },
+  {
+    id: "f-2",
+    customerName: "Ananya Iyer",
+    rating: 5,
+    comment: "Super crispy Samosas, and they arrived piping hot! Will definitely order again next weekend.",
+    tag: "Fresh Ingredients",
+    menuItemName: "Crispy Samosa Platter",
+    timestamp: new Date(Date.now() - 3600000 * 5).toISOString()
+  },
+  {
+    id: "f-3",
+    customerName: "Vikram Singh",
+    rating: 4,
+    comment: "Excellent service! The Paneer Butter Masala had a great texture and the portion size was very generous. Highly recommend.",
+    tag: "Great Service",
+    menuItemName: "Paneer Butter Masala",
+    timestamp: new Date(Date.now() - 3600000 * 12).toISOString()
+  }
+];
+
