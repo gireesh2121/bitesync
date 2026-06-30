@@ -1,0 +1,6 @@
+{
+  "name": "BiteSync - Food Ordering & Admin Dashboard",
+  "description": "A responsive food ordering app for customers with an integrated admin control panel. Connects to Google Sheets via Google Apps Script for real-time inventory and order management.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
